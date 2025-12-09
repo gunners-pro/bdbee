@@ -1,3 +1,6 @@
+mod error;
+mod pager;
+
 fn main() {
-    println!("Hello, world!");
+    println!("Iniciando bdbee...");
 }
