@@ -1,7 +1,7 @@
 use crate::error::{DBError, Result};
 use std::{
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom, Write},
 };
 
 pub struct Pager {
@@ -31,5 +31,23 @@ impl Pager {
 
         self.file.read_exact(&mut buffer).map_err(DBError::Io)?;
         Ok(buffer)
+    }
+
+    pub fn write_page(&mut self, page_id: u64, data: &[u8]) -> Result<()> {
+        if data.len() != self.page_size as usize {
+            return Err(DBError::InvalidPageSize {
+                expected: self.page_size,
+                got: data.len(),
+            });
+        }
+
+        let offset = page_id * self.page_size;
+        self.file
+            .seek(SeekFrom::Start(offset))
+            .map_err(DBError::Io)?;
+
+        self.file.write_all(data).map_err(DBError::Io)?;
+
+        Ok(())
     }
 }
