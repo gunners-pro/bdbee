@@ -1,5 +1,8 @@
 use crate::error::{DBError, Result};
-use std::fs::{File, OpenOptions};
+use std::{
+    fs::{File, OpenOptions},
+    io::{Read, Seek, SeekFrom},
+};
 
 pub struct Pager {
     file: File,
@@ -16,5 +19,17 @@ impl Pager {
             .map_err(DBError::Io)?;
 
         Ok(Pager { file, page_size })
+    }
+
+    pub fn read_page(&mut self, page_id: u64) -> Result<Vec<u8>> {
+        let offset = page_id * self.page_size;
+        let mut buffer = vec![0u8; self.page_size as usize];
+
+        self.file
+            .seek(SeekFrom::Start(offset))
+            .map_err(DBError::Io)?;
+
+        self.file.read_exact(&mut buffer).map_err(DBError::Io)?;
+        Ok(buffer)
     }
 }
