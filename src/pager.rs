@@ -26,7 +26,7 @@ impl Pager {
             .open(path)
             .map_err(DBError::Io)?;
 
-        let len = file.stream_len().unwrap();
+        let len = file.metadata().map_err(DBError::Io)?.len();
         let mut page_size_from_header = page_size;
         let mut total_pages = 1;
 
@@ -109,11 +109,11 @@ impl Pager {
         let header = Header {
             magic: *b"BDBEE\0\0\0",
             version: 1,
-            page_size: page_size,
+            page_size,
             total_pages,
         };
 
-        let mut buffer = [0; 4096];
+        let mut buffer = vec![0u8; page_size as usize];
         buffer[0..8].copy_from_slice(&header.magic);
         buffer[8..16].copy_from_slice(&header.version.to_le_bytes());
         buffer[16..24].copy_from_slice(&header.page_size.to_le_bytes());
