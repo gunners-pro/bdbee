@@ -6,6 +6,7 @@ pub enum DBError {
     InvalidVersion,
     InvalidTotalPages,
     CorruptedFile,
+    FileNotFound,
 }
 
 pub type Result<T> = std::result::Result<T, DBError>;

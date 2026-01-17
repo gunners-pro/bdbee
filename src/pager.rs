@@ -2,7 +2,13 @@ use crate::error::{DBError, Result};
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
+    path::Path,
 };
+
+pub enum OpenMode {
+    Create,
+    Open,
+}
 
 pub struct Pager {
     file: File,
@@ -18,7 +24,9 @@ struct Header {
 }
 
 impl Pager {
-    pub fn open(path: &str, page_size: u64) -> Result<Self> {
+    pub fn open(path: &str, page_size: u64, mode: OpenMode) -> Result<Self> {
+        let exists = Path::new(path).exists();
+
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -30,9 +38,17 @@ impl Pager {
         let mut page_size_from_header = page_size;
         let mut total_pages = 1;
 
-        match len {
-            0 => Self::serialize_header(&file, page_size_from_header, total_pages),
-            len if len >= page_size => {
+        match (exists, len, mode) {
+            (false, 0, OpenMode::Create) => {
+                Self::serialize_header(&file, page_size_from_header, total_pages)
+            }
+            (false, 0, OpenMode::Open) => {
+                return Err(DBError::FileNotFound);
+            }
+            (true, 0, OpenMode::Open) => {
+                return Err(DBError::CorruptedFile);
+            }
+            (_, len, _) if len >= page_size => {
                 let mut buffer = vec![0u8; page_size_from_header as usize];
                 file.seek(SeekFrom::Start(0)).unwrap();
                 file.read_exact(&mut buffer).map_err(DBError::Io)?;
@@ -65,8 +81,6 @@ impl Pager {
                 return Err(DBError::CorruptedFile);
             }
         }
-
-        println!("Tamanho do arquivo: {}", len);
 
         Ok(Pager {
             file,
