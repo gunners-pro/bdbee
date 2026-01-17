@@ -27,12 +27,19 @@ impl Pager {
     pub fn open(path: &str, page_size: u64, mode: OpenMode) -> Result<Self> {
         let exists = Path::new(path).exists();
 
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(path)
-            .map_err(DBError::Io)?;
+        let mut file = match mode {
+            OpenMode::Create => OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .map_err(DBError::Io)?,
+            OpenMode::Open => OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .map_err(DBError::Io)?,
+        };
 
         let len = file.metadata().map_err(DBError::Io)?.len();
         let mut page_size_from_header = page_size;
@@ -40,7 +47,7 @@ impl Pager {
 
         match (exists, len, mode) {
             (false, 0, OpenMode::Create) => {
-                Self::serialize_header(&file, page_size_from_header, total_pages)
+                Self::serialize_header(&mut file, page_size_from_header, total_pages)?;
             }
             (false, 0, OpenMode::Open) => {
                 return Err(DBError::FileNotFound);
@@ -90,7 +97,11 @@ impl Pager {
     }
 
     pub fn read_page(&mut self, page_id: u64) -> Result<Vec<u8>> {
-        let offset = (page_id - 1) * self.page_size;
+        if page_id >= self.total_pages {
+            return Err(DBError::InvalidPage);
+        }
+
+        let offset = page_id * self.page_size;
         let mut buffer = vec![0u8; self.page_size as usize];
 
         self.file
@@ -109,17 +120,43 @@ impl Pager {
             });
         }
 
-        let offset = (page_id - 1) * self.page_size;
+        if page_id > self.total_pages {
+            return Err(DBError::InvalidPage);
+        }
+
+        let offset = page_id * self.page_size;
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(DBError::Io)?;
 
         self.file.write_all(data).map_err(DBError::Io)?;
 
+        if page_id == self.total_pages {
+            self.total_pages += 1;
+            self.sync_header()?;
+        }
+
         Ok(())
     }
 
-    fn serialize_header(mut file: &File, page_size: u64, total_pages: u64) {
+    fn sync_header(&mut self) -> Result<()> {
+        let mut buffer = vec![0u8; self.page_size as usize];
+
+        buffer[0..8].copy_from_slice(b"BDBEE\0\0\0");
+        buffer[8..16].copy_from_slice(&1u64.to_le_bytes());
+        buffer[16..24].copy_from_slice(&self.page_size.to_le_bytes());
+        buffer[24..32].copy_from_slice(&self.total_pages.to_le_bytes());
+
+        self.file.seek(SeekFrom::Start(0)).map_err(DBError::Io)?;
+
+        self.file.write_all(&buffer).map_err(DBError::Io)?;
+
+        self.file.flush().map_err(DBError::Io)?;
+
+        Ok(())
+    }
+
+    fn serialize_header(file: &mut File, page_size: u64, total_pages: u64) -> Result<()> {
         let header = Header {
             magic: *b"BDBEE\0\0\0",
             version: 1,
@@ -133,7 +170,10 @@ impl Pager {
         buffer[16..24].copy_from_slice(&header.page_size.to_le_bytes());
         buffer[24..32].copy_from_slice(&header.total_pages.to_le_bytes());
 
+        file.seek(SeekFrom::Start(0)).map_err(DBError::Io)?;
         file.write_all(&buffer).unwrap();
         file.flush().unwrap();
+
+        Ok(())
     }
 }
